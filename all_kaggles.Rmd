@@ -1,5 +1,5 @@
 ---
-title: "Store_Sales-Time_Series_Forecasting"
+title: "Kaggle Challenges"
 knit: (function(input_file, encoding) {
   out_dir <- 'docs';
   rmarkdown::render(input_file,
