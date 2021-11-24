@@ -4,7 +4,7 @@ knit: (function(input_file, encoding) {
   out_dir <- 'docs';
   rmarkdown::render(input_file,
  encoding=encoding,
- output_file=file.path(dirname(input_file), out_dir, 'all_kaggles.html'))})
+ output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
 author: "Shu25"
 date: "11/24/2021"
 output:
