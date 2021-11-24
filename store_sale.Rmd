@@ -7,8 +7,12 @@ knit: (function(input_file, encoding) {
  output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
 author: "Shu25"
 date: "11/24/2021"
-output: html_document
+output:
+  html_document:
+    toc: true
 ---
+
+Test
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
