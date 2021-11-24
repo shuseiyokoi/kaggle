@@ -1,0 +1,12 @@
+name: "store_sales"
+output_dir: "docs"
+navbar:
+  title: "Store_Sales-Time_Series_Forecasting"
+  left:
+  - text: "Home"
+   href: index.html
+  - text: "Store_Sales-Time_Series_Forecasting"
+   href: store_sale.html
+output:
+  html_document:
+ theme: cosmo
