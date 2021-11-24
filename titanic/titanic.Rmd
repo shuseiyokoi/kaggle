@@ -1,20 +1,8 @@
 ---
-title: "Store_Sales-Time_Series_Forecasting"
-knit: (function(input_file, encoding) {
-  out_dir <- 'docs';
-  rmarkdown::render(input_file,
- encoding=encoding,
- output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
-author: "Shu25"
-date: "11/24/2021"
-output:
-  html_document:
-    toc: true
-    code_folding: "hide"
+title: "Titanic"
+output: html_notebook
 ---
-# Titanic  
-
-## The Challenge
+# The Challenge
 *The sinking of the Titanic is one of the most infamous shipwrecks in history.  *
 
 *On April 15, 1912, during her maiden voyage, the widely considered “unsinkable” RMS Titanic sank after colliding with an iceberg. Unfortunately, there weren’t enough lifeboats for everyone onboard, resulting in the death of 1502 out of 2224 passengers and crew.  *
@@ -27,7 +15,7 @@ I'm going to use the logistic regression since the data can be submitted as if e
 
 ```{r setup}
 library(pROC)
-train = read.csv('titanic/train.csv', header = T)
+train = read.csv('train.csv', header = T)
 rows = sample(1:nrow(train), nrow(train)*0.3)
 df = train[rows,]
 test = train[-rows,]
@@ -37,9 +25,9 @@ df = train
 
 **To match logit function values, run df = train **
 
-## Variable Analytics 
+# Variable Analytics 
 
-### Ticket Class (Pclass)
+## Ticket Class (Pclass)
 Noted as aproxy socio-economic status (1 = high, 3 = low) 
 ```{r pclass_1}
 barplot(table(df$Pclass))
@@ -66,10 +54,10 @@ Reject H0, No sufficient improvement for fit2, go with fit (quantitative Pclass)
 $logit(π) = 1.44679 - 0.85011p $
 
 
-#### Interpretation 
+### Interpretation 
 By one level of ticket class increases, the odds of surviving status decreases by $e^{-0.85011}$ = `r exp(-0.85011)*100` %  
 
-### sex  
+## sex  
 No doubt it affects surviving status.  
 
 ```{r sex}
@@ -93,7 +81,7 @@ Just seeing at AIC, go with model with interaction (Pclass:Sex)
 $logit(π) = 6.0416   -2.0011p -6.0493s + 1.3593ps$   
 
 
-### Age 
+## Age 
 No doubt it affects surviving status.  
 ```{r age}
 val = df$Age
@@ -115,7 +103,7 @@ No interaction needed among Pclass and Age (Based on AIC)
 $logit(π) = 7.964377-2.410212p -6.115491 s -0.038445a + 1.479637 ps$   
 
 
-### # of siblings / spouses aboard the Titanic (SibSp)  
+## # of siblings / spouses aboard the Titanic (SibSp)  
 
 ```{r}
 barplot(table(df$SibSp))
@@ -152,7 +140,7 @@ Go with fit6
 $logit(π) = 8.487528-2.429192p -6.162294s -0.046830a -0.354855s_2 +1.462084 ps$   
 
 
-### # of  parents / children aboard the Titanic (Parch)  
+## # of  parents / children aboard the Titanic (Parch)  
 
 ```{r}
 barplot(table(df$Parch))
@@ -175,14 +163,14 @@ Not statistically significant...
 
 
 
-### Ticket number (ticket)  
+## Ticket number (ticket)  
 
 The ticket number is unique by the ticket. 
 There are some relation between Ticket number and ticket class; if the first desit of the ticket number is 1, the passenger are likely to have 1 for ticket class. Hence, I do not incrude it in to the model  
 
 
 
-### Passenger fare (Fare)  
+## Passenger fare (Fare)  
 
 ```{r}
 summary(df$Fare)
@@ -190,7 +178,7 @@ boxplot(df$Fare)
 ```
 Very skewed data, it is better to normalize.   
 
-#### Taking Log 
+### Taking Log 
 Replace Fare == 0 as NA and take log otherwides.  
 ```{r}
 df$log_Fare = ifelse(df$Fare<= 0, NA, log(df$Fare))
@@ -204,7 +192,7 @@ summary(fit7)
 ```
 Nop, did mpt work. Stick with simple model. 
 
-#### Check Correlation between Fare and Ticket Class 
+### Check Correlation between Fare and Ticket Class 
 
 ```{r}
 cor(df$Fare, df$Pclass)
@@ -215,7 +203,7 @@ As Fare increase, the Pclass decreases (Become Pclass repesent more higher class
 
 Avoid multicollinality => Do not include Fare 
 
-### Cabin number (Cabin)  
+## Cabin number (Cabin)  
 Seems like Cabin number is related to Fare. The same Cabin number tends to have shared fare. But there may be different cabin number with same fare, so I can not be able to concatenate Cabin number using fare as ID.  
 ```{r}
 fit7 = glm(Survived~Pclass*Sex+ Age + SibSp + Cabin, family = binomial ,data = df)
@@ -226,7 +214,7 @@ summary(fit7)
 
 CabinC22 C26 is significant by p-value, but too small sample, Do not include it in the model.  
 
-### Port of Embarkation  (Embarked)  
+## Port of Embarkation  (Embarked)  
 C = Cherbourg, Q = Queenstown, S = Southampton
 
 
@@ -245,13 +233,13 @@ Not much improvement. Go with fit6.
 
 
 
-### Primary model
+## Primary model
 
 Primary Model: $logit(π) = 8.487528-2.429192p -6.162294s -0.046830a -0.354855s_2 +1.462084 ps$  (fit6) 
 
 **But for in purpose of this competition, I should use the model with lowest AIC. But for real world, we should use the model that is simple but efficient.**    
 
-## Test my model 
+# Test my model 
 
 ```{r}
 prediction = predict(fit6, newdata = test, type = "response")
@@ -259,57 +247,56 @@ test_roc = pROC::roc(test$Survived ~ prediction, plot = TRUE, print.auc = TRUE)
 ```
 
 
-### For submission 
+## For submission 
 
 ```{r}
 fit6 = glm(Survived~Pclass*Sex+ Age + SibSp, family = binomial ,data = train)
-test = read.csv('titanic/test.csv', header = T)
+test = read.csv('test.csv', header = T)
 prediction = predict(fit6, test, type = 'response')
 prediction = (prediction > 0.5)*1
 prediction[is.na(prediction )] = 0
 prediction
 pred = data.frame(PassengerId=test$PassengerId, Survived=prediction)
-write.csv(pred, 'titanic/pred_ver1.csv',row.names = FALSE)
+write.csv(pred, 'pred_ver1.csv',row.names = FALSE)
 ```
 
 
 
-## Result 
+# Result 
 
-### version 1 
+## version 1 
 
 Top 21.4%  
 4895th (by score 4027th) out of 18794 with score of 0.77990 
 
-### version 2 
+## version 2 
 ```{r}
 fit6 = glm(Survived~Pclass*Sex+ Age + SibSp, family = binomial ,data = train)
-test = read.csv('titanic/test.csv', header = T)
+test = read.csv('test.csv', header = T)
 prediction = predict(fit6, test, type = 'response')
 prediction = (prediction > 0.5)*1
 # Change age == NA to Survived 
 prediction[is.na(prediction )] = 1
 prediction
 pred = data.frame(PassengerId=test$PassengerId, Survived=prediction)
-write.csv(pred, 'titanic/pred_ver3.csv',row.names = FALSE)
+write.csv(pred, 'pred_ver3.csv',row.names = FALSE)
 ```
 Score 0.67464  
 
-### version 7 
+## version 7 
 Take Age since it has more than 100 NA.  
 ```{r}
 table(is.na(test$Age))
 ```
-
 ```{r}
 fit7 = glm(Survived~Pclass*Sex + SibSp, family = binomial ,data = train)
-test = read.csv('titanic/test.csv', header = T)
+test = read.csv('test.csv', header = T)
 prediction = predict(fit7, test, type = 'response')
 prediction = (prediction > 0.5)*1
 # Change age == NA to Survived 
 prediction[is.na(prediction )] = 1
 prediction
 pred = data.frame(PassengerId=test$PassengerId, Survived=prediction)
-write.csv(pred, 'titanic/pred_ver4.csv',row.names = FALSE)
+write.csv(pred, 'pred_ver4.csv',row.names = FALSE)
 ```
 score: 0.77272  
