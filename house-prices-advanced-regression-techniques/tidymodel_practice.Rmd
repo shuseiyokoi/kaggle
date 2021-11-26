@@ -1,0 +1,264 @@
+---
+title: "Final Project Kaggle Competition"
+author: "Shusei Yokoi"
+date: "6/3/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+setwd('/Users/shuseiyokoi/Desktop/shutats/kaggle/house-prices-advanced-regression-techniques')
+library(tidyverse)
+library(tidymodels)
+library(lattice)
+library(gcookbook)
+library( dplyr)
+```
+
+```{r data, include=FALSE}
+set.seed(1)
+house = read_csv('train.csv')
+colnames(house)[44:45] <- c('X1stFlrSF', 'X2ndFlrSF')
+
+house = house %>%
+  dplyr::select(-Alley, -PoolQC, -Fence, -MiscFeature, -Street) %>% 
+  drop_na() 
+
+fn_test = read_csv('test.csv')
+colnames(fn_test)[44:45] <- c('X1stFlrSF', 'X2ndFlrSF')
+
+fn_test = fn_test%>% 
+  dplyr::select(-Alley, -PoolQC, -Fence, -MiscFeature, -Street)
+
+```
+```{r,include=FALSE}
+# house_spl = initial_split(house) 
+train = initial_split(house) %>% 
+  training()
+test = house %>% 
+  initial_split() %>% 
+  testing()
+id = fn_test[1]
+# k-folds cross validation
+train_cv <- vfold_cv(train, v = 5)
+```
+
+# LASSO Ridge Regression 
+
+Since there are too many new/NA variables on the test set, I dropped about 20 categorical exploratory variables. Then I fitted LASSO and Ridge regression. However, it does not give me a good result. 
+
+```{r, include=FALSE}
+house = house %>%
+  select(-MSZoning, -Heating, -SaleType, -RoofStyle, -Exterior1st, -Exterior2nd, -SaleCondition, -GarageType, -Functional, -GarageCond, -GarageQual, -Electrical, -ExterCond, -RoofMatl, -LandSlope, -Utilities, -Foundation, -BsmtQual, -BsmtCond, -BsmtFinType1, -BsmtFinType2, -HouseStyle, -MasVnrType, -BsmtExposure, -KitchenQual, - FireplaceQu, -GarageFinish, -Id) %>%
+  fastDummies::dummy_cols(remove_selected_columns = T) %>%
+  na.omit()
+
+fn_test = fn_test %>% 
+  select(-MSZoning, -Heating, -SaleType, -SaleCondition, -RoofStyle, -Exterior1st, - Exterior2nd, -GarageType, -Functional, -GarageCond, -GarageQual, -Electrical, -ExterCond, -RoofMatl, -LandSlope, -Utilities, -Foundation, -BsmtQual, -BsmtCond, -BsmtFinType1, -BsmtFinType2, -HouseStyle, -MasVnrType, -KitchenQual, -FireplaceQu, -GarageFinish, -Id) %>% 
+  fastDummies::dummy_cols(remove_selected_columns = T)
+
+set.seed(1)
+ini_sp = initial_split(house)
+train = ini_sp %>% 
+  training()
+test = ini_sp%>% 
+  testing()
+```
+
+
+```{r}
+set.seed(1)
+mix_grid <- grid_regular(penalty(c(0, 1), trans = NULL), 
+                         mixture(c(0, 1)), levels = 10)
+
+
+mix_rec <- recipe(SalePrice ~ ., data = train) %>%
+  step_naomit(all_numeric(), skip = T) %>%
+  step_naomit(all_nominal(), skip = T) %>%
+  step_dummy(all_nominal()) %>% 
+  step_log(SalePrice)
+
+mix_spec_tune <- linear_reg(penalty = tune(), mixture = tune()) %>%
+  set_engine("glmnet") %>%
+  set_mode("regression")
+
+mix_wflow <- workflow() %>% 
+  add_recipe(mix_rec) %>% 
+  add_model(mix_spec_tune)
+
+# k-folds cross validation
+train_cv <- vfold_cv(train, v = 5)
+
+mix_grid_search <-
+  tune_grid(
+    mix_wflow,
+    resamples = train_cv,
+    grid = mix_grid
+  )
+
+tuning_grid <- mix_grid_search %>% 
+  collect_metrics() %>% 
+  filter(.metric == 'rmse') %>% 
+  data.frame()
+  
+tuning_grid %>% 
+  arrange(mean)
+
+autoplot(mix_grid_search, metric = 'rmse')
+```
+
+The tune grid function suggested me to used the ridge regression (mixture = 0) and panlty = 0. The estimate for variables are below. 
+
+```{r best}
+best =  mix_grid_search %>% 
+  select_best(metric = 'rmse')
+
+final_model = mix_wflow %>% 
+  finalize_workflow(best)
+
+last_fit = final_model %>% 
+  last_fit(ini_sp)
+
+pred = last_fit %>% 
+  collect_predictions() %>% 
+  select(.pred)
+
+prediction = exp(pred)
+prediction[is.na(prediction)] = median(prediction$.pred, na.rm = T)
+rmse(test, SalePrice, prediction$.pred)
+```
+
+The RMSE for the Ridge regression is below. 
+```{r, echo=F}
+prediction = predict(last_fit$.workflow, fn_test)
+prediction[is.na(prediction)] = median(prediction$.pred, na.rm = T)
+rmse(test, SalePrice, prediction$.pred)
+```
+
+
+```{r, include=FALSE}
+predict(mix_fit, fn_test)
+prediction[is.na(prediction)] = median(prediction$.pred, na.rm = T)
+submission_2 = data.frame(id, prediction)
+colnames(submission_2) = c('Id','SalePrice')
+write.csv(submission_2, 'pred_ver2.csv', row.names = FALSE)
+```
+
+```{r, echo=F}
+best =  mix_grid_search %>% 
+  select_best(metric = 'rmse')
+
+final_model = mix_wflow %>% 
+  finalize_workflow(best)
+
+mix_fit <- mix_wflow %>% 
+  fit(train) 
+
+mix_fit %>% 
+  pull_workflow_fit() %>% 
+  tidy() %>% 
+  arrange(desc(estimate))
+```
+
+
+
+# k-NN 
+I runed k-NN model to the data. The variables that are significant to the sale price (OverallQual + YearBuilt + YearRemodAdd + MasVnrArea + TotalBsmtSF + BsmtFinSF1 + X1stFlrSF + GrLivArea + FullBath+ TotRmsAbvGrd + GarageYrBlt + GarageCars + GarageArea) 
+
+```{r , include=FALSE}
+set.seed(1)
+house = read_csv('train.csv')
+colnames(house)[44:45] <- c('X1stFlrSF', 'X2ndFlrSF')
+
+house = house %>%
+  dplyr::select(-Alley, -PoolQC, -Fence, -MiscFeature) %>% 
+  drop_na() 
+
+fn_test = read_csv('test.csv')
+colnames(fn_test)[44:45] <- c('X1stFlrSF', 'X2ndFlrSF')
+
+fn_test = fn_test%>% 
+  dplyr::select(-Alley, -PoolQC, -Fence, -MiscFeature, -BsmtExposure)
+
+```
+```{r,include=FALSE}
+set.seed(1)
+train = house %>% 
+  initial_split() %>% 
+  training()
+test = house %>% 
+  initial_split() %>% 
+  testing()
+id = fn_test[1]
+```
+
+
+```{r}
+set.seed(1)
+knn_mod_tune <- nearest_neighbor(neighbors = tune()) %>%
+  set_engine("kknn") %>%
+  set_mode("regression")
+
+k_grid <- grid_regular(neighbors(c(1,50)),  levels = 25)
+
+knn_rec <- recipe(SalePrice ~ OverallQual + YearBuilt + YearRemodAdd + MasVnrArea + TotalBsmtSF + BsmtFinSF1 + X1stFlrSF + GrLivArea + FullBath+ TotRmsAbvGrd + GarageYrBlt + GarageCars + GarageArea, data = train) %>%
+  step_naomit(all_numeric(), skip = T) %>% 
+  step_naomit(all_nominal(), skip = T) %>% 
+  step_dummy(all_nominal()) %>% 
+  step_normalize(all_numeric(), -SalePrice)
+
+knn_wflow <- workflow() %>%
+  add_recipe(knn_rec) %>%
+  add_model(knn_mod_tune)
+
+train_cv <- vfold_cv(train, v = 5)
+
+knn_grid_search <-
+  tune_grid(
+    knn_wflow,
+    resamples = train_cv,
+    grid = k_grid
+  )
+```
+
+The tuning grid suggested me to use 13 neighbors (k = 13) with mean RMSE around 40000. 
+```{r, echo=F}
+k = knn_grid_search %>% 
+  collect_metrics() %>% 
+  filter(.metric == 'rmse') %>% 
+  slice_min(mean)
+k
+```
+
+The RMSE for the Ridge regression is below. 
+```{r}
+knn_mod <- nearest_neighbor(neighbors = k$neighbors) %>%
+  set_engine("kknn") %>%
+  set_mode("regression")
+
+ins_wflow <- workflow() %>%
+  add_recipe(knn_rec) %>%
+  add_model(knn_mod)
+
+knn_fit <- ins_wflow %>% fit(test) 
+
+p = predict(knn_fit, test)
+rmse(test, SalePrice, p$.pred)
+```
+
+```{r , include=F}
+# knn_fit <- ins_wflow %>% fit(train) 
+# prediction = predict(knn_fit, fn_test)
+# prediction[is.na(prediction)] = median(prediction$.pred, na.rm = T)
+# submission_1 = data.frame(id, prediction$.pred)
+# colnames(submission_1) = c('Id','SalePrice')
+# write.csv(submission_1, 'pred_ver3.csv',row.names = FALSE)
+```
+
+
+
+
+# Conclution
+
+Based on the estimate of RMSE from all the model, I decided to use prediction from liear regression. Here is my result on kaggle. I did not do good job, but my RMSE itself was considered as a good result because there are so many people participated in the competition and their scores are very cloase to each other.  
+
+![Kaggle](/Users/shuseiyokoi/Desktop/Screen Shot 2021-06-03 at 19.11.03 (2).png)

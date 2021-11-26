@@ -1,0 +1,308 @@
+---
+title: "Final Project Kaggle Competition"
+author: "Shu25"
+date: "6/3/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+setwd('/Users/shuseiyokoi/Desktop/shutats/kaggle/house-prices-advanced-regression-techniques')
+library(tidyverse)
+library(tidymodels)
+library(lattice)
+library(gcookbook)
+```
+
+```{r data, include=FALSE}
+set.seed(1)
+house = read_csv('train.csv')
+colnames(house)[44:45] <- c('X1stFlrSF', 'X2ndFlrSF')
+
+house = house %>%
+  dplyr::select(-Alley, -PoolQC, -Fence, -MiscFeature) %>% 
+  drop_na() 
+
+# house_n = dplyr::select_if(house, is.numeric)
+# house_n[is.na(house_n)] = 0
+# 
+# house_c = dplyr::select_if(house, is.character)
+# 
+# col_name = colnames(house_c)
+# 
+# house_c_modi = 0
+# for( x in house_c[1:length(house_c)]){
+#   if(anyNA(x)){
+#     a = names(sort(table(x), decreasing = TRUE))[1]
+#     house_c_modi = data.frame(house_c_modi, a)
+#   }else{
+#     house_c_modi = data.frame(house_c_modi,x )
+#   }
+# }
+# house_c_modi = house_c_modi[-1]
+# colnames(house_c_modi) = col_name
+# 
+# house = cbind(house_n, house_c_modi)
+
+fn_test = read_csv('test.csv')
+colnames(fn_test)[44:45] <- c('X1stFlrSF', 'X2ndFlrSF')
+
+fn_test = fn_test%>% 
+  dplyr::select(-Alley, -PoolQC, -Fence, -MiscFeature, -BsmtExposure)
+
+# fn_test_n = dplyr::select_if(fn_test, is.numeric)
+# fn_test_n[is.na(fn_test_n)] = 0
+# 
+# fn_test_c = dplyr::select_if(fn_test, is.character)
+# col_name = colnames(fn_test_c)
+# 
+# fn_test_c_modi = 0
+# for( x in fn_test_c[1:length(fn_test_c)]){
+#   if(anyNA(x)){
+#     a = names(sort(table(x), decreasing = TRUE))[1]
+#     fn_test_c_modi = data.frame(fn_test_c_modi, a)
+#   }else{
+#     fn_test_c_modi = data.frame(fn_test_c_modi,x )
+#   }
+# }
+# fn_test_c_modi = fn_test_c_modi[-1]
+# colnames(fn_test_c_modi) = col_name
+# 
+# fn_test = cbind(fn_test_n, fn_test_c_modi)
+
+```
+```{r,include=FALSE}
+train = house %>% 
+  initial_split() %>% 
+  training()
+test = house %>% 
+  initial_split() %>% 
+  testing()
+```
+
+# Overview 
+| Ask a home buyer to describe their dream house, and they probably won't begin with the height of the basement ceiling or the proximity to an east-west railroad. But this playground competition's dataset proves that much more influences price negotiations than the number of bedrooms or a white-picket fence.
+| 
+| With 79 explanatory variables describing (almost) every aspect of residential homes in Ames, Iowa, this competition challenges you to predict the final price of each home. 
+
+With 79 explanatory variables, 
+
+
+# Variable selection (Numeric) 
+
+I pick variables with correlation of more than |0.3|.   
+```{r}
+house_num<- dplyr::select_if(house, is.numeric)
+
+r <- cor(house_num, use="complete.obs") %>% 
+  data.frame()
+
+ggcorrplot::ggcorrplot(r, hc.order = TRUE, type = "lower")
+
+variable = colnames(r[r$SalePrice > abs(0.3)])
+variable = head(variable, -1)
+variable
+```
+
+```{r}
+pairs(train[c(variable, "SalePrice")], pch = 16)
+```
+
+# Variable selection (Character) 
+
+I pick variables with most significant and .   
+```{r}
+house_cha <- dplyr::select_if(house, is.character)
+```
+
+
+```{r}
+set.seed(1)
+lr_mod <- linear_reg() %>%
+  set_mode("regression") %>%
+  set_engine("lm")
+
+lm_2 <- lr_mod %>%
+  fit(log(SalePrice) ~ OverallQual + YearBuilt + YearRemodAdd + MasVnrArea + TotalBsmtSF + BsmtFinSF1 + X1stFlrSF + GrLivArea + FullBath + TotRmsAbvGrd + GarageYrBlt + GarageCars + GarageArea + factor(LandContour) + factor(BldgType) + factor(BsmtQual)  + factor(BsmtFinType1)  + factor(CentralAir)  + factor(KitchenQual), data = train)
+
+
+# lm_1 <- lr_mod %>%
+#   fit_resamples(SalePrice ~ OverallQual + YearBuilt + YearRemodAdd + MasVnrArea + TotalBsmtSF + BsmtFinSF1 +  X1stFlrSF + GrLivArea + FullBath+ TotRmsAbvGrd + GarageYrBlt + GarageCars + GarageArea, resamples = train_cv)
+
+# lm_1 %>% collect_metrics()
+# OverallQual + YearBuilt + YearRemodAdd + MasVnrArea + TotalBsmtSF + BsmtFinSF1 + X1stFlrSF + GrLivArea + FullBath+ TotRmsAbvGrd + GarageYrBlt + GarageCars + log(GarageArea)  + MSZoning  + Street + LotShape  +LandContour+ Utilities +LotConfig  +LandSlope +Neighborhood + Condition1 +Condition2+ BldgType +HouseStyle + RoofStyle +RoofMatl +Exterior1st + Exterior2nd + MasVnrType + ExterQual  + ExterCond + Foundation + BsmtQual + BsmtCond + BsmtExposure  + BsmtFinType1 + BsmtFinType2 + Heating   + HeatingQC + CentralAir + Electrical + KitchenQual + Functional + FireplaceQu + GarageType + GarageFinish +  GarageQual + GarageCond + PavedDrive + SaleType + SaleCondition, 
+
+
+summary(lm_2$fit)
+```
+
+
+```{r}
+prediction = exp(predict(lm_2, test))
+prediction[is.na(prediction)] = median(prediction$.pred, na.rm = T)
+rmse(test, SalePrice, prediction$.pred)
+```
+
+```{r, message = F}
+prediction = exp(predict(lm_2, fn_test))
+prediction[is.na(prediction)] = median(prediction$.pred, na.rm = T)
+id = fn_test[1]
+submission_1 = data.frame(id, prediction)
+colnames(submission_1) = c('Id','SalePrice')
+write.csv(submission_1, 'pred_ver1.csv',row.names = FALSE)
+```
+
+
+# LASSO Ridge Regression 
+I was going to fit the LASSO Regression to it. However, there are too many new/NA variables on the test set.
+```{r}
+par(mfrow=c(2,2))
+lapply(house_cha, table)
+fn_test_cha <- dplyr::select_if(fn_test, is.character)
+lapply(fn_test_cha, table)
+```
+```{r}
+house = house %>%
+  select(-MSZoning, -Heating, -SaleType, -RoofStyle, -Exterior1st, -Exterior2nd, -SaleCondition, -GarageType, -Functional, -GarageCond, -GarageQual, -Electrical, -ExterCond, -RoofMatl, -LandSlope, -Utilities, -Foundation, -BsmtQual, -BsmtCond, -BsmtFinType1, -BsmtFinType2, -HouseStyle, -MasVnrType, -BsmtExposure, -KitchenQual, - FireplaceQu, -GarageFinish) %>% 
+  fastDummies::dummy_cols(remove_selected_columns = T) %>% 
+  na.omit()
+
+fn_test = fn_test %>% 
+    select(-MSZoning, -Heating, -SaleType, -SaleCondition, -RoofStyle, -Exterior1st, - Exterior2nd, -GarageType, -Functional, -GarageCond, -GarageQual, -Electrical, -ExterCond, -RoofMatl, -LandSlope, -Utilities, -Foundation, -BsmtQual, -BsmtCond, -BsmtFinType1, -BsmtFinType2, -HouseStyle, -MasVnrType, -KitchenQual, -FireplaceQu, -GarageFinish) %>% 
+  fastDummies::dummy_cols(remove_selected_columns = T) 
+```
+
+
+```{r}
+train = house %>% 
+  initial_split() %>% 
+  training()
+test = house %>% 
+  initial_split() %>% 
+  testing()
+```
+
+```{r}
+mix_grid <- grid_regular(penalty(c(0, 1), trans = NULL), 
+                         mixture(c(0, 1)), levels = 10)
+
+# mix_rec <- recipe(SalePrice ~ OverallQual + YearBuilt + YearRemodAdd + MasVnrArea + TotalBsmtSF + BsmtFinSF1 + X1stFlrSF + GrLivArea + FullBath+ TotRmsAbvGrd + GarageYrBlt + GarageCars + GarageArea +LandContour + BldgType + BsmtQual  + BsmtFinType1 + BsmtFinType2  + CentralAir  + KitchenQual  + FireplaceQu  + GarageFinish  + PavedDrive , data = train) %>%
+#   step_naomit(all_numeric(), skip = T) %>%
+#   step_naomit(all_nominal(), skip = T) %>%
+#   step_dummy(all_nominal()) %>%
+#   step_normalize(all_numeric(), -SalePrice)
+
+mix_rec <- recipe(SalePrice ~ ., data = train) %>%
+  step_naomit(all_numeric(), skip = T) %>%
+  step_naomit(all_nominal(), skip = T) %>%
+  step_dummy(all_nominal()) 
+
+mix_spec_tune <- linear_reg(penalty = tune(), mixture = tune()) %>%
+  set_engine("glmnet") %>%
+  set_mode("regression")
+
+mix_wflow <- workflow() %>% 
+  add_recipe(mix_rec) %>% 
+  add_model(mix_spec_tune)
+
+# k-folds cross validation
+train_cv <- vfold_cv(train, v = 5)
+
+mix_grid_search <-
+  tune_grid(
+    mix_wflow,
+    resamples = train_cv,
+    grid = mix_grid
+  )
+
+tuning_grid <- mix_grid_search %>% 
+  collect_metrics() %>% 
+  filter(.metric == 'rmse') %>% 
+  data.frame()
+  
+tuning_grid %>% 
+  arrange(mean)
+```
+```{r}
+mix_spec <- linear_reg(penalty = 0, mixture = 0) %>%
+  set_engine("glmnet") %>%
+  set_mode("regression") 
+
+mix_wflow <- workflow() %>% 
+  add_recipe(mix_rec) %>% 
+  add_model(mix_spec)
+
+mix_fit <- mix_wflow %>% 
+  fit(train) 
+
+mix_fit %>% 
+  pull_workflow_fit() %>% 
+  tidy() %>% 
+  arrange(desc(estimate))
+```
+```{r}
+prediction = floor(predict(mix_fit, test))
+prediction[is.na(prediction)] = median(prediction$.pred, na.rm = T)
+rmse(test, SalePrice, prediction$.pred)
+```
+
+
+```{r}
+prediction = predict(mix_fit, fn_test)
+prediction[is.na(prediction)] = median(prediction$.pred, na.rm = T)
+id = fn_test[1]
+submission_2 = data.frame(id, prediction)
+colnames(submission_2) = c('Id','SalePrice')
+write.csv(submission_2, 'pred_ver2.csv',row.names = FALSE)
+```
+
+#KNN  
+
+```{r}
+knn_mod_tune <- nearest_neighbor(neighbors = tune()) %>%
+  set_engine("kknn") %>%
+  set_mode("regression")
+
+k_grid <- grid_regular(neighbors(c(1,50)),  levels = 25)
+
+knn_rec <- recipe(SalePrice ~ OverallQual + YearBuilt + YearRemodAdd + MasVnrArea + TotalBsmtSF + BsmtFinSF1 + X1stFlrSF + GrLivArea + FullBath+ TotRmsAbvGrd + GarageYrBlt + GarageCars + GarageArea , data = train) %>%
+  step_naomit(all_numeric(), skip = T) %>% 
+  step_naomit(all_nominal(), skip = T) %>% 
+  step_dummy(all_nominal()) %>%
+  step_normalize(all_numeric(), -SalePrice)
+
+knn_wflow <- workflow() %>%
+  add_recipe(knn_rec) %>%
+  add_model(knn_mod_tune)
+
+train_cv <- vfold_cv(train, v = 5)
+
+knn_grid_search <-
+  tune_grid(
+    knn_wflow,
+    resamples = train_cv,
+    grid = k_grid
+  )
+```
+
+```{r}
+k = knn_grid_search %>% 
+  collect_metrics() %>% 
+  filter(.metric == 'rmse') %>% 
+  slice_min(mean)
+k
+```
+
+```{r}
+knn_mod_tune <- nearest_neighbor(neighbors = k$neighbors) %>%
+  set_engine("kknn") %>%
+  set_mode("regression")
+
+ins_wflow <- workflow() %>%
+  add_recipe(knn_rec) %>%
+  add_model(knn_mod_tune)
+
+knn_fit <- ins_wflow %>% fit(test) 
+
+predict(knn_fit, test)
+```
+
