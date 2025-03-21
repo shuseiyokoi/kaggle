@@ -1,0 +1,159 @@
+---
+title: "linkedin_jobs_and_skills_scrach"
+output: html_document
+date: "2024-08-21"
+---
+
+```{r setup}
+# knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(ggmap)
+library(tidygeocoder)
+library(osmdata)
+library(patchwork)
+library(ggdensity)
+library(ape)
+library(stringr)
+
+lst_csv = list.files(pattern = '.csv')
+
+# Read all csv files in the directory and save as df with the same name of the file
+for (i in lst_csv){
+  temp_df = read.csv(i)  
+	assign(gsub('.csv','',i),temp_df)}
+```
+
+```{r}
+# Filter jobs in California and save sa csv
+# temp = linkedin_job_postings[grepl("CA$", linkedin_job_postings$job_location), ] %>%
+#   filter(search_country == "United States")
+# 
+# temp = merge(temp, job_skills, by = 'job_link', all.x = T)
+# temp = merge(temp, job_summary, by = 'job_link', all.x = T)
+# 
+# write.csv(temp, "linkedin_job_posting_ca.csv")
+```
+
+```{r}
+# locations = unique(df$job_location)
+# locations = gsub('Mc Clellan AFB, CA','Mcclellan AFB, CA', locations)
+# locations = gsub('High School Acres, CA','little tokyo, CA', locations)
+# locations = gsub('Crescent City North, CA','Crescent City, CA', locations)
+# locations = gsub('El Toro Marine Air Station, CA','Great Park, Irvine, CA', locations)
+# locations = gsub('Marina Travel Park, CA','Marina, CA', locations)
+# locations = gsub('Eastern Goleta Valley, CA','Goleta Valley, CA', locations)
+# coordinates = lapply(locations, getbb)
+```
+
+```{r}
+# df$job_location = gsub('Mc Clellan AFB, CA','Mcclellan AFB, CA', df$job_location)
+# df$job_location = gsub('High School Acres, CA','little tokyo, CA', df$job_location)
+# df$job_location = gsub('Crescent City North, CA','Crescent City, CA', df$job_location)
+# df$job_location = gsub('El Toro Marine Air Station, CA','Great Park, Irvine, CA', df$job_location)
+# df$job_location = gsub('Marina Travel Park, CA','Marina, CA', df$job_location)
+# df$job_location = gsub('Eastern Goleta Valley, CA','Goleta Valley, CA', df$job_location)
+```
+
+
+```{r}
+# coordinates_mean = data.frame (
+#   lat = numeric(),
+#   lon = numeric(),
+#   job_location = character(),
+#   stringsAsFactors = FALSE
+# )
+# 
+# for(i in 1:length(coordinates)){
+#   
+#   mean_lat = mean(coordinates[i][[1]][4], coordinates[i][[1]][2])
+#   mean_lon = mean(coordinates[i][[1]][3], coordinates[i][[1]][1])
+#   
+#   temp_df = data.frame(
+#       lat = mean_lat,
+#       lon = mean_lon,
+#       job_location = locations[i],
+#       stringsAsFactors = FALSE
+#   )
+# 
+#   coordinates_mean = rbind(coordinates_mean, temp_df)
+# }
+# 
+# df = merge(df, coordinates_mean, by = 'job_location', all.x = T)
+# write.csv(df, "linkedin_job_posting_ca.csv")
+```
+
+```{r}
+df = linkedin_job_posting_ca %>% 
+  mutate(first_seen = as.Date(first_seen)) %>% 
+  filter(between(lon, -124.41060660766607,-114.13445790587905),
+         between(lat, 32.5342307609976,42.00965914828148))
+```
+
+# Filter only data related job
+```{r}
+data.df = df %>%
+  filter(grepl("data science|data analysis|data analyst|data scientist", job_title, ignore.case = TRUE))
+```
+
+
+```{r}
+register_stadiamaps("f69b7b6a-7095-478b-a246-94a1f53b2b50", write = FALSE)
+
+ca <- c(left = -126, bottom = 32, right = -110, top = 43)
+map = get_stadiamap(ca, zoom = 6, maptype = "alidade_smooth") 
+ggmap(map)
+```
+
+
+```{r}
+library("forcats")
+
+# use qmplot to make a scatterplot on a map
+qmplot(lon, lat, data = df, maptype = "stamen_toner_lite", color = I("lightblue"))
+```
+
+```{r}
+ggmap(map) + 
+  geom_hdr(
+    aes(lon, lat, fill = after_stat(probs)), data = df,
+    alpha = .4
+  ) +
+  scale_fill_brewer(palette = "YlOrRd") +
+  theme(legend.position = "none")
+```
+
+
+```{r}
+skills <- data.df %>%
+  mutate(job_skills = tolower(job_skills), #テキストのすべてを小文字に変換
+         words = str_split(job_skills, ",\\s*")) %>%
+  unnest(words) %>%
+  count(words) %>% 
+  arrange(desc(n))
+head(skills, 10)
+```
+
+```{r}
+titles <- data.df %>%
+  mutate(job_skills = tolower(job_title), #テキストのすべてを小文字に変換
+         words = str_split(job_title, ",\\s*")) %>%
+  unnest(words) %>%
+  count(words) %>% 
+  arrange(desc(n))
+head(titles, 10)
+```
+
+```{r}
+companies <- data.df %>%
+  mutate(job_skills = tolower(company), #テキストのすべてを小文字に変換
+         words = str_split(company, ",\\s*")) %>%
+  unnest(words) %>%
+  count(words) %>% 
+  arrange(desc(n))
+head(companies, 10)
+```
+
+
+

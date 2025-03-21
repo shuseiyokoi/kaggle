@@ -1,0 +1,190 @@
+---
+title: "order_forcasting_ARIMA_and_regression"
+output: html_document
+date: "2024-08-08"
+---
+
+```{r setup}
+# knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(forecast)
+library(Metrics)
+library(lubridate)
+lst_csv = list.files(pattern = '.csv')
+
+# Read all csv files in the directory and save as df with the same name of the file
+for (i in lst_csv){
+  temp_df = read.csv(i)  
+	assign(gsub('.csv','',i),temp_df)}
+
+train_df = train %>% 
+  mutate(date = as.Date(date))%>% 
+  mutate(weekdays = wday(date))
+
+test_df = test %>% 
+  mutate(date = as.Date(date))%>% 
+  mutate(weekdays = wday(date)) 
+```
+
+
+```{r}
+train_df = train_df %>% 
+  mutate(orders = log(orders)) %>% 
+  ts()
+```
+
+
+```{r}
+fit <- Arima(train_df[,3], xreg=train_df[,19], order=c(5,1,2))
+fit
+checkresiduals(fit)
+```
+
+
+```{r}
+# Create an empty dataframe with specified column names and types
+results <- data.frame(
+  warehouse = character(),
+  mape = numeric(),
+  rmse = numeric(),
+  stringsAsFactors = FALSE
+)
+
+predictions <- data.frame(
+  date = character(),
+  warehouse = character(),
+  pred = numeric(),
+  act = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (i in unique(train_df$warehouse)) {
+  df = train_df %>% 
+    filter(warehouse == i) 
+
+  n = floor(nrow(df)*0.8)
+
+  train = df[c(1:n),] %>% 
+    mutate(orders = log(orders))
+  
+  test = df[c((n+1):nrow(df)),] 
+  
+  fit <- Arima(train[,3], xreg=train[,19], order=c(5,1,2))
+  
+  forecast_arima = forecast(fit, xreg = test[,19])
+
+  
+  pred = exp(forecast_arima[["mean"]])
+  
+  test_date = df[c((n+1):nrow(df)),2]
+  
+  temp_df = data.frame(
+    date = as.Date(test_date),
+    warehouse = rep(i, length(pred)),  
+    pred = as.numeric(pred),
+    act = test,
+    stringsAsFactors = FALSE
+  ) 
+  
+  predictions = rbind(predictions, temp_df)
+
+
+  mape = Metrics::mape(pred, test$orders)
+  
+  rmse = forecast::accuracy(forecast_arima, test$orders)['Test set','RMSE']
+  
+  new_row <- data.frame(
+    warehouse = i,
+    mape = mape,
+    rmse = rmse,
+    stringsAsFactors = FALSE
+  )
+  
+  # Append the new row to the results dataframe
+  results = rbind(results, new_row)
+}
+
+results
+mean(results$mape)
+```
+
+
+```{r}
+ggplot(predictions, aes(y = pred, x = date, color = warehouse))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+
+ggplot(predictions, aes(y = act.orders, x = date, color = warehouse))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+
+```{r}
+
+# Create an empty dataframe with specified column names and types
+prediction <- data.frame(
+  id = character(),
+  orders = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (i in unique(train_df$warehouse)) {
+    train = train_df %>% 
+    filter(warehouse == i) %>% 
+      mutate(orders = log(orders))
+  
+  test = test_df %>% 
+    filter(warehouse == i)
+  
+  fit <- Arima(train[,3], xreg=train[,19], order=c(5,1,2))
+  
+  forecast_arima = forecast(fit, xreg = test$weekdays)
+  
+  pred = exp(forecast_arima[["mean"]])
+
+  
+  new_row <- data.frame(
+    id = test$id,
+    orders = c(pred),
+    date = test$date,
+    warehouse = test$warehouse,
+    stringsAsFactors = FALSE
+  )
+  
+  # Append the new row to the results dataframe
+  prediction <- rbind(prediction, new_row)
+}
+
+```
+
+```{r}
+ggplot(prediction, aes(y = orders, x = date, color = warehouse))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+
+
+```{r}
+prediction = prediction %>% 
+  select(id,orders) 
+```
+
+
+```{r}
+write.csv(prediction, 'prediction_9_ARIMA_REGRESSION_LOG.csv',row.names = FALSE)
+```
+
+

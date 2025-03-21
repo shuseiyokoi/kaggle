@@ -1,0 +1,102 @@
+---
+title: "order_forcasting_time_seriese"
+output: html_document
+date: "2024-07-13"
+---
+
+```{r setup}
+# knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(forecast)
+library(Metrics)
+lst_csv = list.files(pattern = '.csv')
+
+# Read all csv files in the directory and save as df with the same name of the file
+for (i in lst_csv){
+  temp_df = read.csv(i)  
+	assign(gsub('.csv','',i),temp_df)}
+
+train_df = train %>% 
+  mutate(date = as.Date(date))
+
+test_df = test %>% 
+  mutate(date = as.Date(date))
+```
+
+
+
+
+```{r}
+# Create an empty dataframe with specified column names and types
+prediction <- data.frame(
+  id = character(),
+  orders = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (i in unique(train_df$warehouse)) {
+  train = train_df %>% 
+    filter(warehouse == i) 
+  
+  test = test_df %>% 
+    filter(warehouse == i)
+
+  train = ts(log(train$orders), frequency = 7)
+  
+  arima_model_1 = auto.arima(
+    y = train,
+    ic = 'aic',
+    max.order = 7,
+    stepwise = F,
+    approximation = F
+  )
+  
+  forecast_arima = forecast(arima_model_1, h = nrow(test))
+
+  pred = exp(forecast_arima[["mean"]])
+  
+  
+  new_row <- data.frame(
+    id = test$id,
+    orders = c(pred),
+    date = test$date,
+    warehouse = test$warehouse,
+    stringsAsFactors = FALSE
+  )
+  
+  # Append the new row to the results dataframe
+  prediction <- rbind(prediction, new_row)
+}
+
+```
+
+```{r}
+ggplot(prediction, aes(y = orders, x = date, color = warehouse))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+```{r}
+prediction = prediction %>% 
+  select(id,orders) 
+```
+
+
+```{r}
+write.csv(prediction, 'prediction_8.csv',row.names = FALSE)
+```
+
+
+```{r}
+prediction = prediction %>% 
+  mutate(orders = round(orders, 0))
+write.csv(prediction, 'prediction_2.csv',row.names = FALSE)
+```
+
+
+

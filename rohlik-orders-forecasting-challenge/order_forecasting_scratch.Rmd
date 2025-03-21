@@ -1,0 +1,518 @@
+---
+title: "order_forecasting"
+output: html_document
+date: "2024-06-13"
+---
+
+```{r setup}
+# knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(forecast)
+library(Metrics)
+lst_csv = list.files(pattern = '.csv')
+
+# Read all csv files in the directory and save as df with the same name of the file
+for (i in lst_csv){
+  temp_df = read.csv(i)  
+	assign(gsub('.csv','',i),temp_df)}
+
+train_df = train %>% 
+  mutate(date = as.Date(date))
+train = train %>% 
+  mutate(date = as.Date(date))
+```
+
+```{r}
+range(train$date)
+```
+
+
+```{r}
+table(train$warehouse)
+```
+
+```{r}
+train %>% 
+  group_by(warehouse) %>%
+  summarise(sum_value = sum(orders)) %>% 
+  ungroup()
+```
+
+```{r}
+table(table(train$date))
+```
+
+
+```{r}
+warehouse <- unique(train$warehouse)
+dates <- seq(min(train$date), max(train$date), by="day")
+complete_data <- expand.grid(date = dates, group = warehouse)
+complete_data = complete_data %>% 
+  mutate(id = paste(warehouse,date,  sep= "_"))
+merged_data <- merge(complete_data, train, by=c("id"), all.x=TRUE)
+```
+
+
+```{r}
+ggplot(merged_data, aes(x=date.y, y=orders, color=warehouse)) +
+  geom_line() +
+  labs(title="Line Plot with 5 Groups",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(train %>% filter (warehouse == 'Brno_1'), aes(x=date, y=orders, color=warehouse)) +
+  geom_line() +
+  labs(title="Line Plot with 5 Groups",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(train, aes(x=date, y=orders, color=warehouse)) +
+  geom_line() +
+  labs(title="Line Plot with 5 Warehouses",
+       x="Date",
+       y="Orders") +
+  theme_minimal()
+```
+
+### Run ARIMA model for Brno_1
+
+```{r}
+df = train %>% 
+  filter(warehouse == "Brno_1") 
+```
+
+
+```{r}
+ts_df = ts(df$orders, frequency = 7)
+train = log(ts_df[c(1:800)])
+test = ts_df[c(801:nrow(df))]
+```
+
+
+```{r}
+arima_model_1 = auto.arima(
+    y = train,
+    ic = 'aic',
+    max.order = 7,
+    stepwise = F,
+    approximation = F
+  )
+  forecast_arima = forecast(arima_model_1, h = length(test))
+
+  pred = exp(forecast_arima[["mean"]])
+  
+  mape = Metrics::mape(pred, test)
+  
+  rmse = forecast::accuracy(forecast_arima, test)['Test set','RMSE']
+  
+  mape
+```
+
+```{r}
+checkresiduals(arima_model_1)
+```
+
+```{r}
+forecast_arima = forecast(arima_model_1, h = length(test))
+autoplot(forecast_arima)
+```
+
+### Run ARIMA for all warehouses
+
+```{r}
+# Create an empty dataframe with specified column names and types
+results <- data.frame(
+  warehouse = character(),
+  mape = numeric(),
+  rmse = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (i in names(table(train_df$warehouse))) {
+  df = train_df %>% 
+    filter(warehouse == i) 
+
+  ts_df = ts(df$orders, frequency = 7)
+  n = floor(nrow(df)*0.7)
+  train = ts_df[c(1:n)]
+  test = ts_df[c((n+1):nrow(df))]
+  
+  arima_model_1 = auto.arima(
+    y = train,
+    ic = 'aic',
+    max.order = 7,
+    stepwise = F,
+    approximation = F
+  )
+  forecast_arima = forecast(arima_model_1, h = length(test))
+  
+  pred = forecast_arima[["mean"]]
+  test_antilog = test
+  
+  mape = Metrics::mape(pred, test_antilog)
+  
+  rmse = forecast::accuracy(forecast_arima, test)['Test set','RMSE']
+  
+  new_row <- data.frame(
+    warehouse = i,
+    mape = mape,
+    rmse = rmse,
+    stringsAsFactors = FALSE
+  )
+  
+  # Append the new row to the results dataframe
+  results = rbind(results, new_row)
+}
+
+results
+```
+
+
+### use log 
+
+
+```{r}
+# Create an empty dataframe with specified column names and types
+results <- data.frame(
+  warehouse = character(),
+  mape = numeric(),
+  rmse = numeric(),
+  stringsAsFactors = FALSE
+)
+
+predictions <- data.frame(
+  date = character(),
+  warehouse = character(),
+  pred = numeric(),
+  act = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (i in names(table(train_df$warehouse))) {
+  df = train_df %>% 
+    filter(warehouse == i) 
+
+  ts_df = ts(df$orders, frequency = 7)
+  n = floor(nrow(df)*0.7)
+  train = log(ts_df[c(1:n)])
+  test = ts_df[c((n+1):nrow(df))]
+  
+  arima_model_1 = auto.arima(
+    y = train,
+    ic = 'aic',
+    max.order = 7,
+    stepwise = F,
+    approximation = F
+  )
+  forecast_arima = forecast(arima_model_1, h = length(test))
+
+  pred = 2.718^forecast_arima[["mean"]]
+  
+  test_date = df[c((n+1):nrow(df)),2]
+  
+  temp_df = data.frame(
+    date = as.Date(test_date),
+    warehouse = rep(i, length(pred)),  
+    pred = as.numeric(pred),
+    act = test,
+    stringsAsFactors = FALSE
+  ) 
+  
+  predictions = rbind(predictions, temp_df)
+
+
+  mape = Metrics::mape(pred, test)
+  
+  rmse = forecast::accuracy(forecast_arima, test)['Test set','RMSE']
+  
+  new_row <- data.frame(
+    warehouse = i,
+    mape = mape,
+    rmse = rmse,
+    stringsAsFactors = FALSE
+  )
+  
+  # Append the new row to the results dataframe
+  results = rbind(results, new_row)
+}
+
+results
+```
+
+
+```{r}
+ggplot(predictions, aes(y = pred, x = date, color = warehouse))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+
+ggplot(predictions, aes(y = act, x = date, color = warehouse))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+
+
+```{r}
+temp_df <- predictions %>%
+pivot_longer(cols = c(act, pred), names_to = "type", values_to = "value")
+
+ggplot(temp_df, aes(y = value, x = date, color = warehouse, linetype = type))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+
+
+# Random Forest
+
+```{r}
+# Set up
+library(mlbench)
+library(tidymodels)
+library(DALEX)
+library(ranger)
+library(Rcpp)
+library(corrplot)
+library(ggplot2)
+library(gridExtra)
+library(SHAPforxgboost)
+
+df = train_df %>% 
+  select(-c(holiday_name, id, shutdown, mini_shutdown, blackout, mov_change, frankfurt_shutdown, precipitation, snow, user_activity_1, user_activity_2)) %>% 
+  mutate(weekdays = weekdays(date)) 
+  # mutate(year_month = format(date, "%Y-%m")) 
+  # mutate(month = format(date, "%m")) %>% 
+  # mutate(day = format(date, "%d"))
+```
+
+
+```{r}
+split = initial_split(df, 0.8)
+train = training(split)
+test = testing(split)
+
+model = rand_forest(trees = 500, min_n = 1, mtry = 13) %>% 
+  set_engine(engine = "ranger", seed(2)) %>% 
+  set_mode("regression")
+
+fit = model %>% 
+  fit(orders ~., data=train)
+fit
+```
+
+```{r}
+result = test %>% 
+  select(orders) %>% 
+  bind_cols(predict(fit, test))
+
+metrics = metric_set(yardstick::rmse, yardstick::rsq, yardstick::mape)
+
+result %>% 
+  metrics(orders, .pred)
+```
+
+
+```{r}
+test_result = bind_cols(result, test)
+ggplot(test_result, aes(x=date, y=.pred, color=warehouse)) +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+
+ggplot(test_result, aes(x=date, y=orders...1, color=warehouse)) +
+  geom_line() +
+  labs(title="Acctual",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+
+```{r}
+explainer = fit %>% 
+  explain(
+    data = test %>% select(-orders),
+    y = test$orders
+  )
+```
+
+
+```{r}
+shap = explainer %>% 
+  predict_parts(
+    new_observation = test %>% dplyr::slice(11),
+    type = "shap",
+    B = 25)
+plot(shap)
+
+```
+
+
+## ARIMA with regression model 
+
+
+
+```{r}
+# Create an empty dataframe with specified column names and types
+results <- data.frame(
+  warehouse = character(),
+  mape = numeric(),
+  rmse = numeric(),
+  stringsAsFactors = FALSE
+)
+
+predictions <- data.frame(
+  date = character(),
+  warehouse = character(),
+  pred = numeric(),
+  act = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (i in unique(train_df$warehouse)) {
+  df = train_df %>% 
+    filter(warehouse == i) 
+
+  n = floor(nrow(df)*0.8)
+
+  train = df[c(1:n),] %>% 
+    mutate(orders = log(orders))
+  
+  test = df[c((n+1):nrow(df)),] 
+  
+  fit <- Arima(train[,3], xreg=train[,19], order=c(5,1,2))
+  
+  forecast_arima = forecast(fit, xreg = test[,19])
+
+  
+  pred = exp(forecast_arima[["mean"]])
+  
+  test_date = df[c((n+1):nrow(df)),2]
+  
+  temp_df = data.frame(
+    date = as.Date(test_date),
+    warehouse = rep(i, length(pred)),  
+    pred = as.numeric(pred),
+    act = test,
+    stringsAsFactors = FALSE
+  ) 
+  
+  predictions = rbind(predictions, temp_df)
+
+
+  mape = Metrics::mape(pred, test$orders)
+  
+  rmse = forecast::accuracy(forecast_arima, test$orders)['Test set','RMSE']
+  
+  new_row <- data.frame(
+    warehouse = i,
+    mape = mape,
+    rmse = rmse,
+    stringsAsFactors = FALSE
+  )
+  
+  # Append the new row to the results dataframe
+  results = rbind(results, new_row)
+}
+
+results
+mean(results$mape)
+```
+
+
+```{r}
+ggplot(predictions, aes(y = pred, x = date, color = warehouse))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+
+ggplot(predictions, aes(y = act.orders, x = date, color = warehouse))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+
+```{r}
+
+# Create an empty dataframe with specified column names and types
+prediction <- data.frame(
+  id = character(),
+  orders = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (i in unique(train_df$warehouse)) {
+    train = train_df %>% 
+    filter(warehouse == i) %>% 
+      mutate(orders = log(orders))
+  
+  test = test_df %>% 
+    filter(warehouse == i)
+  
+  fit <- Arima(train[,3], xreg=train[,19], order=c(5,1,2))
+  
+  forecast_arima = forecast(fit, xreg = test$weekdays)
+  
+  pred = exp(forecast_arima[["mean"]])
+
+  
+  new_row <- data.frame(
+    id = test$id,
+    orders = c(pred),
+    date = test$date,
+    warehouse = test$warehouse,
+    stringsAsFactors = FALSE
+  )
+  
+  # Append the new row to the results dataframe
+  prediction <- rbind(prediction, new_row)
+}
+
+```
+
+```{r}
+ggplot(prediction, aes(y = orders, x = date, color = warehouse))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+
+
+```{r}
+prediction = prediction %>% 
+  select(id,orders) 
+```
+
+
+```{r}
+write.csv(prediction, 'prediction_9_ARIMA_REGRESSION_LOG.csv',row.names = FALSE)
+```
+
+

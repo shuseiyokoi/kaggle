@@ -1,0 +1,134 @@
+---
+title: "order_forcasting_XGBoost"
+output: html_document
+date: "2024-07-17"
+---
+
+```{r setup}
+# knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(mlbench)
+library(tidymodels)
+library(DALEX)
+library(ranger)
+library(Rcpp)
+library(corrplot)
+library(ggplot2)
+library(gridExtra)
+library(SHAPforxgboost)
+library(xgboost)
+library(lubridate)
+lst_csv = list.files(pattern = '.csv')
+
+# Read all csv files in the directory and save as df with the same name of the file
+for (i in lst_csv){
+  temp_df = read.csv(i)  
+	assign(gsub('.csv','',i),temp_df)}
+
+train_df = train %>% 
+  mutate(date = as.Date(date)) %>% 
+  mutate(weekdays = wday(date)) %>% 
+  mutate(date = as.numeric(factor(date))) %>% 
+  select(c(colnames(test),orders,-id, -holiday_name)) %>% 
+  mutate(warehouse = as.numeric(factor(warehouse))) 
+  
+
+test_df = test %>% 
+  mutate(weekdays = wday(date)) %>% 
+  mutate(date = as.numeric(factor(date))) %>% 
+  select(-holiday_name) %>% 
+  mutate(weekdays = wday(date)) %>% 
+  mutate(warehouse = as.numeric(factor(warehouse)))
+```
+
+
+```{r}
+n = floor(nrow(train_df)*0.8)
+train_df <- train_df[order(train_df$date), ]
+
+train = train_df[c(1:n),] 
+
+test = train_df[c((n+1):nrow(train_df)),] 
+
+dtrain <- xgb.DMatrix(data = as.matrix(train[, -7]), label = train[, 7])
+dtest <- xgb.DMatrix(data = as.matrix(test[, -7]), label = test[, 7])
+
+
+params <- list(
+  booster = "gbtree",
+  eta = 0.5,
+  max_depth = 8,
+  subsample = 0.7,
+  colsample_bytree = 0.7,
+  objective = "reg:squarederror",
+  eval_metric = "rmse"
+)
+
+num_round <- 100
+watchlist <- list(train = dtrain)
+model <- xgb.train(params = params, data = dtrain, nrounds = num_round, watchlist = watchlist, early_stopping_rounds = 50)
+```
+
+```{r}
+prediction = as.data.frame(predict(model, dtest))
+prediction = prediction %>% 
+  mutate( id = test$id) %>% 
+  mutate( warehouse = test$warehouse) %>% 
+  mutate( date = test$date) %>% 
+  rename( orders = `predict(model, dtest)`)
+```
+
+
+```{r}
+ggplot(prediction, aes(y = orders, x = date, color = as.factor(warehouse)))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+
+```{r}
+train = train_df
+test = test_df %>% 
+  select(-id)
+
+dtrain <- xgb.DMatrix(data = as.matrix(train[, -7]), label = train[, 7])
+dtest <- xgb.DMatrix(data = as.matrix(test[, -7]), label = test[, 7])
+
+prediction = as.data.frame(predict(model, dtest))
+```
+
+```{r}
+prediction = prediction %>% 
+  mutate( id = test_df$id) %>% 
+  mutate( warehouse = test$warehouse) %>% 
+  mutate( date = test$date) %>% 
+  rename( orders = `predict(model, dtest)`)
+```
+
+
+```{r}
+ggplot(prediction, aes(y = orders, x = date, color = as.factor(warehouse)))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+```{r}
+prediction = merge(solution_example, prediction, by = "id") %>% 
+  select(-c(orders.x, date, warehouse))
+```
+
+
+```{r}
+write.csv(prediction, 'prediction_12_xgboost_MAPE.csv',row.names = FALSE)
+```
+
+
+

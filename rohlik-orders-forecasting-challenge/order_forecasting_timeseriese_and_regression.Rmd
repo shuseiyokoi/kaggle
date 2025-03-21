@@ -1,0 +1,211 @@
+---
+title: "order_forecasting_ARIMA_and_regression"
+output: html_document
+date: "2024-07-23"
+---
+
+```{r setup}
+# knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(forecast)
+library(Metrics)
+lst_csv = list.files(pattern = '.csv')
+
+# Read all csv files in the directory and save as df with the same name of the file
+for (i in lst_csv){
+  temp_df = read.csv(i)  
+	assign(gsub('.csv','',i),temp_df)}
+
+train_df = train %>% 
+  mutate(date = as.Date(date))%>% 
+  mutate(weekdays = weekdays(date)) 
+
+test_df = test %>% 
+  mutate(date = as.Date(date))%>% 
+  mutate(weekdays = weekdays(date))
+```
+
+
+## Using tslm with train data only (Check)
+```{r}
+train_df = ts(train_df)
+test_df = ts(test_df)
+
+fit_all <- tslm(
+  orders ~ warehouse + holiday + weekdays + date + holiday_name + winter_school_holidays + school_holidays,
+  data = train_df)
+summary(fit_all)
+
+forecast_arima = forecast(fit_all, newdata = test_df)
+```
+
+## Used lm function becasue tslm did not work due to the data type error 
+
+```{r}
+# Create an empty dataframe with specified column names and types
+results <- data.frame(
+  warehouse = character(),
+  mape = numeric(),
+  rmse = numeric(),
+  stringsAsFactors = FALSE
+)
+
+predictions <- data.frame(
+  date = character(),
+  warehouse = character(),
+  pred = numeric(),
+  act = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (i in unique(train_df$warehouse)) {
+  df = train_df %>% 
+    filter(warehouse == i) 
+
+  n = floor(nrow(df)*0.8)
+
+  train = df[c(1:n),] %>% 
+    mutate(orders = log(orders))
+  
+  test = df[c((n+1):nrow(df)),] 
+  
+  fit_1 <- lm(orders ~ holiday + weekdays + date, data = train)
+  
+  
+  forecast_arima = forecast(fit_1, newdata = test, ts = T)
+
+  
+
+  pred = exp(forecast_arima[["mean"]])
+  
+  test_date = df[c((n+1):nrow(df)),2]
+  
+  temp_df = data.frame(
+    date = as.Date(test_date),
+    warehouse = rep(i, length(pred)),  
+    pred = as.numeric(pred),
+    act = test,
+    stringsAsFactors = FALSE
+  ) 
+  
+  predictions = rbind(predictions, temp_df)
+
+
+  mape = Metrics::mape(pred, test$orders)
+  
+  rmse = forecast::accuracy(forecast_arima, test)['Test set','RMSE']
+  
+  new_row <- data.frame(
+    warehouse = i,
+    mape = mape,
+    rmse = rmse,
+    stringsAsFactors = FALSE
+  )
+  
+  # Append the new row to the results dataframe
+  results = rbind(results, new_row)
+}
+
+results
+mean(results$mape)
+```
+
+
+
+```{r}
+ggplot(predictions, aes(y = pred, x = date, color = warehouse))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+
+ggplot(predictions, aes(y = act.orders, x = date, color = warehouse))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+
+
+```{r}
+temp_df <- predictions %>%
+pivot_longer(cols = c(act, pred), names_to = "type", values_to = "value")
+
+ggplot(temp_df, aes(y = value, x = date, color = warehouse, linetype = type))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+
+
+
+```{r}
+
+# Create an empty dataframe with specified column names and types
+prediction <- data.frame(
+  id = character(),
+  orders = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (i in unique(train_df$warehouse)) {
+    train = train_df %>% 
+    filter(warehouse == i) %>% 
+      mutate(orders = log(orders))
+  
+  test = test_df %>% 
+    filter(warehouse == i)
+  
+  fit_1 <- lm(orders ~ holiday + weekdays + date, data = train)
+  
+  
+  forecast_arima = forecast(fit_1, newdata = test, ts = T)
+
+  
+  pred = exp(forecast_arima[["mean"]])
+
+  
+  new_row <- data.frame(
+    id = test$id,
+    orders = c(pred),
+    date = test$date,
+    warehouse = test$warehouse,
+    stringsAsFactors = FALSE
+  )
+  
+  # Append the new row to the results dataframe
+  prediction <- rbind(prediction, new_row)
+}
+
+```
+
+```{r}
+ggplot(prediction, aes(y = orders, x = date, color = warehouse))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+
+
+```{r}
+prediction = prediction %>% 
+  select(id,orders) 
+```
+
+
+```{r}
+write.csv(prediction, 'prediction_7_TSREG_LOG.csv',row.names = FALSE)
+```
+
+

@@ -1,0 +1,33 @@
+---
+title: "nfl-big-data-bowl-2025"
+output: html_document
+date: "2024-11-23"
+---
+
+```{r setup}
+# knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+lst_csv = list.files(pattern = '.csv')
+
+# Read all csv files in the directory and save as df with the same name of the file
+for (i in lst_csv)
+  {
+  temp_df = read.csv(i)  
+	assign(gsub('.csv','',i),temp_df)
+	rm(temp_df)
+	}
+```
+
+```{r}
+games %>% 
+  mutate(gameDate, as.Date(gameDate, format = "MM/DD/YYYY"))
+```
+```{r}
+plays_numeric = plays %>% 
+  select_if(is.numeric)
+corrplot(cor(plays_numeric, method = "pearson", use = "pairwise.complete.obs"), method = 'ellipse', type = 'upper')
+corrplot(cor(plays_numeric, method = "pearson", use = "pairwise.complete.obs"), method = 'ellipse', order = 'AOE', type = 'upper')
+```
+

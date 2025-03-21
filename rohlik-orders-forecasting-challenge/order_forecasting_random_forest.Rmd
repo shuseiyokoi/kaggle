@@ -1,0 +1,156 @@
+---
+title: "order_forecasting_random_forest"
+output: html_document
+date: "2024-08-09"
+---
+
+# Random Forest
+
+```{r, setup}
+# Set up
+library(mlbench)
+library(tidymodels)
+library(DALEX)
+library(ranger)
+library(Rcpp)
+library(corrplot)
+library(ggplot2)
+library(gridExtra)
+library(SHAPforxgboost)
+library(lubridate)
+lst_csv = list.files(pattern = '.csv')
+
+# Read all csv files in the directory and save as df with the same name of the file
+for (i in lst_csv){
+  temp_df = read.csv(i)  
+	assign(gsub('.csv','',i),temp_df)}
+
+
+train_df = train %>% 
+  select(-c(holiday_name, id, shutdown, mini_shutdown, blackout, mov_change, frankfurt_shutdown, precipitation, snow, user_activity_1, user_activity_2)) %>% 
+  mutate(date = as.Date(date)) %>% 
+  mutate(weekdays = wday(date)) 
+
+test_df = test %>% 
+  mutate(date = as.Date(date)) %>% 
+  mutate(weekdays = wday(date)) 
+```
+
+
+```{r}
+split = initial_split(train_df, 0.8)
+rf.train = training(split)
+rf.test = testing(split)
+
+model = rand_forest(trees = 500, min_n = 15, mtry = 7) %>% 
+  set_engine(engine = "ranger", seed(6)) %>% 
+  set_mode("regression")
+
+fit = model %>% 
+  fit(orders ~., data = rf.train)
+fit
+```
+500 , 0.9655295
+
+```{r}
+result = rf.test %>% 
+  select(orders) %>% 
+  bind_cols(predict(fit, rf.test))
+
+metrics = metric_set(yardstick::rmse, yardstick::rsq, yardstick::mape)
+
+result %>% 
+  metrics(orders, .pred)
+```
+
+
+```{r}
+test_result = bind_cols(result, rf.test)
+ggplot(test_result, aes(x=date, y=.pred, color=warehouse)) +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+
+ggplot(test_result, aes(x=date, y=orders...1, color=warehouse)) +
+  geom_line() +
+  labs(title="Acctual",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+```{r}
+# Creating a plot
+plot <- ggplot(test_result, aes(x = orders...1, y = .pred, color = warehouse)) +
+  geom_point(aes(shape = warehouse), size = 3) +  # Using points with shapes by group
+  geom_line(aes(group = warehouse), linetype = "dashed") +  # Connecting points with lines within groups
+  geom_abline(intercept = 0, slope = 1, linetype = "solid", color = "gray") +  # Adding a 45-degree line
+  labs(x = "Actual Value", y = "Predicted Value", title = "Comparison of Actual and Predicted Values by Group") +
+  theme_minimal() +
+  scale_color_brewer(type = 'qual', palette = "Set1")  # Color settings
+
+# Display the plot
+print(plot)
+
+```
+
+Base Plot: Set up using ggplot with actual values on the x-axis and predicted values on the y-axis.
+Points: Added using geom_point() where shapes can be assigned based on groups.
+Lines: geom_line() with dashed lines connects the points within each group to show trends.
+45-degree Line: geom_abline() adds a reference line where perfect predictions would lie.
+Aesthetics: labs() sets labels and titles, theme_minimal() gives a clean theme, and scale_color_brewer() assigns distinct colors for different groups.
+
+
+
+```{r}
+explainer = fit %>% 
+  explain(
+    data = rf.test %>% select(-orders),
+    y = test$orders
+  )
+```
+
+
+```{r}
+shap = explainer %>% 
+  predict_parts(
+    new_observation = rf.test %>% dplyr::slice(11),
+    type = "shap",
+    B = 25)
+plot(shap)
+
+```
+
+
+```{r}
+prediction = as.data.frame(predict(fit, test_df)) %>% 
+  mutate( id = test_df$id) %>% 
+  mutate( warehouse = test_df$warehouse) %>% 
+  mutate( date = test_df$date) %>% 
+  rename( orders = .pred)
+```
+
+
+```{r}
+ggplot(prediction, aes(y = orders, x = date, color = as.factor(warehouse)))  +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+```
+
+```{r}
+prediction = merge(solution_example, prediction, by = "id") %>% 
+  select(-c(orders.x, date, warehouse))
+```
+
+
+```{r}
+write.csv(prediction, 'prediction_15_random_forest.csv',row.names = FALSE)
+```
+
+
+

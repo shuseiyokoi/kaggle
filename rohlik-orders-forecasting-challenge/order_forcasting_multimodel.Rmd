@@ -1,0 +1,317 @@
+---
+title: "order_forcasting_multimodel"
+output: html_document
+date: "2024-08-08"
+---
+
+```{r setup}
+# knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(forecast)
+library(Metrics)
+library(lubridate)
+library(xgboost)
+library(lubridate)
+library(rsample)
+library(forecast)
+library(ranger)
+library(tidymodels)
+lst_csv = list.files(pattern = '.csv')
+
+# Read all csv files in the directory and save as df with the same name of the file
+for (i in lst_csv){
+  temp_df = read.csv(i)  
+	assign(gsub('.csv','',i),temp_df)}
+
+train_df = train %>% 
+  mutate(date = as.Date(date))%>% 
+  mutate(weekdays = wday(date))
+
+test_df = test %>% 
+  mutate(date = as.Date(date))%>% 
+  mutate(weekdays = wday(date)) 
+```
+
+
+```{r}
+# Create an empty dataframe for store results for each model performance 
+metrics <- data.frame(
+  warehouse = character(),
+  mape = numeric(),
+  model = character(),
+  stringsAsFactors = FALSE
+)
+
+# Create an empty dataframe for store predictions by all models
+predictions <- data.frame(
+  date = character(),
+  warehouse = character(),
+  pred = numeric(),
+  act = numeric(),
+  model = character(),
+  stringsAsFactors = FALSE
+)
+```
+
+# XGBoost
+```{r}
+# Run XGBoost 
+model_name = "XGBoost"
+
+# Reorder df for decent split for train and test data
+train_df <- train_df[order(train_df$date), ]
+
+# Modify dataset
+xg.train_df = train_df %>% 
+  mutate(weekdays = wday(date)) %>% 
+  mutate(date = as.numeric(factor(date))) %>% 
+  select(c(colnames(test),orders,-id, -holiday_name)) %>% 
+  mutate(warehouse = as.numeric(factor(warehouse))) 
+
+# Same warehouse name for later
+xg.test_warehouse_name = train_df$warehouse
+
+
+# Modify dataset
+xg.test_df = test_df %>% 
+  mutate(weekdays = wday(date)) %>% 
+  mutate(date = as.numeric(factor(date))) %>% 
+  select(-holiday_name) %>% 
+  mutate(weekdays = wday(date)) %>% 
+  mutate(warehouse = as.numeric(factor(warehouse)))
+
+# Split train df by 80-20
+n = floor(nrow(xg.train_df)*0.8)
+
+xg.train = xg.train_df[c(1:n),] 
+
+xg.test = xg.train_df[c((n+1):nrow(xg.train_df)),] 
+
+# Save warehouse name for later 
+xg.test_warehouse_name = xg.test_warehouse_name[(n+1):length(xg.test_warehouse_name)] 
+
+# Change data type df to matrix
+dtrain <- xgb.DMatrix(data = as.matrix(xg.train[, -7]), label = xg.train[, 7])
+dtest <- xgb.DMatrix(data = as.matrix(xg.test[, -7]), label = xg.test[, 7])
+
+# Set params 
+params <- list(
+  booster = "gbtree",
+  eta = 0.3,
+  max_depth = 6,
+  subsample = 0.7,
+  colsample_bytree = 0.7,
+  objective = "reg:squarederror",
+  eval_metric = "rmse"
+)
+
+num_round <- 10
+watchlist <- list(train = dtrain)
+model <- xgb.train(params = params, data = dtrain, nrounds = num_round, watchlist = watchlist, early_stopping_rounds = 10)
+
+# Make prediction
+prediction = as.data.frame(predict(model, dtest))
+
+# Create prediction data set
+prediction = prediction %>% 
+  mutate( date = xg.test$date) %>% 
+  mutate( warehouse = xg.test_warehouse_name) %>% 
+  rename( pred = `predict(model, dtest)`) %>% 
+  mutate( act = xg.test$orders) %>% 
+  mutate( model = model_name)
+
+# Merge prediction to predictions df 
+predictions = rbind(predictions, prediction)
+
+# Save prediction plot 
+xgboost_plot = ggplot(prediction, aes(y = pred, x = date, color = as.factor(warehouse)))  +
+  geom_line() +
+  labs(title=model_name,
+       x="Date",
+       y="Value") +
+  theme_minimal()
+
+new_row = prediction %>% 
+  group_by(warehouse) %>% 
+  summarise(
+    mape = mean(abs((act - pred) / act))
+  ) %>%
+  mutate(warehouse = names(table(test$warehouse))) %>% 
+  mutate(model = model_name)
+
+metrics = rbind(metrics, new_row)
+```
+
+# Ransom Forest
+```{r}
+model_name = 'RandomForest'
+
+# Modify dataset
+train_df = train %>% 
+  select(-c(holiday_name, id, shutdown, mini_shutdown, blackout, mov_change, frankfurt_shutdown, precipitation, snow, user_activity_1, user_activity_2)) %>% 
+  mutate(date = as.Date(date)) %>% 
+  mutate(weekdays = weekdays(date)) 
+
+test_df = test %>% 
+  mutate(date = as.Date(date)) %>% 
+  mutate(weekdays = weekdays(date)) 
+
+# Split data set for train and test
+split = initial_split(train_df, 0.8)
+rf.train = training(split)
+rf.test = testing(split)
+
+# Build the model
+model = rand_forest(trees = 500, min_n = 15, mtry = 30) %>% 
+  set_engine(engine = "ranger", seed(6)) %>% 
+  set_mode("regression")
+
+# Train the model
+fit = model %>% 
+  fit(orders ~., data = rf.train)
+fit
+
+# Predict 
+prediction = predict(fit, rf.test)
+
+prediction = prediction %>% 
+  rename( pred = .pred) %>%   
+  mutate( date = rf.test$date) %>% 
+  mutate( warehouse = rf.test$warehouse) %>% 
+  mutate( act = rf.test$orders) %>% 
+  mutate( model = model_name)
+
+# Merge prediction to predictions df 
+predictions = rbind(predictions, prediction)
+
+new_row = prediction %>% 
+  group_by(warehouse) %>% 
+  summarise(
+    mape = mean(abs((act - pred) / act))
+  ) %>%
+  mutate(warehouse = names(table(test$warehouse))) %>% 
+  mutate(model = model_name)
+
+metrics = rbind(metrics, new_row)
+ 
+random_forest_plot = ggplot(prediction, aes(x=date, y=pred, color=warehouse)) +
+  geom_line() +
+  labs(title="Prediction",
+       x="Date",
+       y="Value") +
+  theme_minimal()
+
+```
+
+
+# ARIMA
+
+```{r}
+model_name = 'ARIMA'
+
+# Create an empty dataframe with specified column names and types
+
+prediction <- data.frame(
+  pred = numeric(),
+  date = character(),
+  warehouse = character(),
+  act = numeric(),
+  model = character(),
+  stringsAsFactors = FALSE
+)
+
+ts.train_df = train_df %>% 
+  mutate(date = as.Date(date))
+ts.train = train_df %>% 
+  mutate(date = as.Date(date))
+
+for (i in unique(ts.train_df$warehouse)) {
+  
+  df = ts.train_df %>% 
+    filter(warehouse == i) 
+
+  ts_df = ts(df$orders, frequency = 7)
+  n = floor(nrow(df)*0.7)
+  ts.train = ts_df[c(1:n)]
+  ts.test = ts_df[c((n+1):nrow(df))]
+  
+  arima_model_1 = auto.arima(
+    y = ts.train,
+    ic = 'aic',
+    max.order = 7,
+    stepwise = F,
+    approximation = F
+  )
+  
+  forecast_arima = forecast(arima_model_1, h = length(ts.test))
+  
+  # Predict 
+  pred = forecast_arima[["mean"]]
+  
+  test_date = df[c((n+1):nrow(df)),2]
+  
+  temp.df = data.frame(
+    date = as.Date(test_date),
+    warehouse = rep(i, length(pred)),  
+    pred = as.numeric(pred),
+    act = df[c((n+1):nrow(df)),3],
+    model = rep(model_name, length(pred)),  
+    stringsAsFactors = FALSE
+    ) 
+  
+  prediction = rbind(prediction, temp.df)
+
+  temp.mape = Metrics::mape(pred, ts.test)
+  
+  new_row <- data.frame(
+    warehouse = i,
+    mape = temp.mape,
+    model = model_name,
+    stringsAsFactors = FALSE
+  )
+  
+  # Append the new row to the results dataframe
+  metrics = rbind(metrics, new_row)
+
+}
+
+predictions = rbind(predictions, prediction)
+
+```
+
+
+
+```{r}
+ggplot(metrics, aes(x = warehouse, y = mape, fill = model)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7) +  # Adjust the position and width as needed
+  labs(x = "Warehouses", y = "MAPE", title = "Metrics for Each Model by the Warehouse") +
+  scale_fill_brewer(palette = "Set2") +  # Use a qualitative palette suitable for categorical data
+  theme_minimal() +
+  theme(legend.title = element_text(size = 12), legend.text = element_text(size = 10))  # Adjusting text sizes
+
+```
+
+```{r}
+# Loop through each unique warehouse
+plot_list <- lapply(unique(predictions$warehouse), function(wh) {
+  df_wh <- filter(predictions, warehouse == wh)
+  
+  ggplot(df_wh, aes(x = date, group = model, color = model)) +
+    geom_line(aes(y = pred), size = 1) +
+    geom_point(aes(y = pred), size = 2) +
+    geom_line(aes(y = act), linetype = "dashed", color = "black", size = 1) +
+    geom_point(aes(y = act), shape = 21, fill = "black", size = 3) +
+    labs(title = paste("Predictions vs Actual at", wh),
+         x = "Date", y = "Orders", color = "Model") +
+    scale_color_manual(values = c("ARIMA" = "lightblue", "Random Forest" = "lightgreen", "XGBoost" = "pink")) +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+})
+
+# Print all plots (you can also choose to save them with ggsave() or view them one by one)
+print(plot_list)
+
+```
+
