@@ -55,20 +55,33 @@ test = train_df[c((n+1):nrow(train_df)),]
 dtrain <- xgb.DMatrix(data = as.matrix(train[, -7]), label = train[, 7])
 dtest <- xgb.DMatrix(data = as.matrix(test[, -7]), label = test[, 7])
 
+# Custom MAPE eval function
+mape_eval <- function(preds, dtrain) {
+  labels <- getinfo(dtrain, "label")
+  err <- mean(abs((labels - preds)/pmax(1, abs(labels))))
+  return(list(metric = "mape", value = err))
+}
 
 params <- list(
   booster = "gbtree",
   eta = 0.5,
-  max_depth = 8,
+  max_depth = 10,
   subsample = 0.7,
   colsample_bytree = 0.7,
-  objective = "reg:squarederror",
-  eval_metric = "rmse"
+  objective = "reg:squarederror"
 )
 
 num_round <- 100
 watchlist <- list(train = dtrain)
-model <- xgb.train(params = params, data = dtrain, nrounds = num_round, watchlist = watchlist, early_stopping_rounds = 50)
+model <- xgb.train(
+  params = params, 
+  data = dtrain, 
+  nrounds = num_round, 
+  watchlist = watchlist,  
+  eval_metric = mape_eval,
+  maximize = FALSE,
+  early_stopping_rounds = 50
+)
 ```
 
 ```{r}
