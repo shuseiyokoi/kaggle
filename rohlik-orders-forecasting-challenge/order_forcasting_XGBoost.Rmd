@@ -1,5 +1,5 @@
 ---
-title: "order_forcasting_XGBoost"
+title: "order_forecasting_XGBoost"
 output: html_document
 date: "2024-07-17"
 ---
