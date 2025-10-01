@@ -1,0 +1,60 @@
+---
+title: "scratch"
+author: "Shusei Yokoi"
+date: "2025-09-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(corrplot)
+library(GGally)
+
+# Read all csv files in the directory and save as df with the same name of the file
+lst_csv = list.files(pattern = '.csv')
+for (i in lst_csv) {
+  temp_df = read.csv(i)
+  assign(gsub('.csv','',i),temp_df)
+  rm(temp_df) # Added
+}
+```
+
+
+```{r}
+# Example: use df that you loaded from Kaggle
+# Select numeric columns only
+num_df <- train %>% select(where(is.numeric))
+
+# Omit rows with all NA (keeps partial rows where at least some values exist)
+num_df <- na.omit(num_df)
+
+## 1. Summary statistics
+summary_stats <- num_df %>%
+  summarise(across(everything(), list(
+    mean = ~mean(.x, na.rm = TRUE),
+    sd   = ~sd(.x, na.rm = TRUE),
+    min  = ~min(.x, na.rm = TRUE),
+    max  = ~max(.x, na.rm = TRUE)
+  )))
+print(summary_stats)
+
+## 2. Correlation matrix (with NA removed)
+cor_mat <- cor(num_df, use = "pairwise.complete.obs")
+corrplot(cor_mat, method = "color", type = "upper", tl.cex = 0.7)
+
+## 3. Pairwise scatterplots
+ggpairs(num_df, progress = FALSE)
+
+## 4. Density plots for each numeric column
+num_df %>%
+  tidyr::pivot_longer(cols = everything(), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = value)) +
+  geom_density(fill = "steelblue", alpha = 0.6, na.rm = TRUE) +
+  facet_wrap(~variable, scales = "free") +
+  theme_minimal()
+
+```
+
